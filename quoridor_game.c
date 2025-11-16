@@ -6,14 +6,21 @@
 
 //structs
 struct termios orig_termios;
+typedef struct {
+    char name[10];
+    int x;
+    int y;
+} player;
 
 //enums
-typedef enum {LOAD = 0, PVP = 1, PVE = 2} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5} input;
+typedef enum {LOAD = 0, PVP = 1, PVE = 2, QUIT = 3} option;
+typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
+typedef enum {P1 = 0, P2 = 1} winner;
 
-//defines
+//macros
 #define BASE_SIZE 9
 #define WALL_SIZE 2
+#define N_OPTIONS 4
 
 //function pre-calls (just so we doesnt need to organize every function in order)
 void construct_board(int b_size, char board[b_size][b_size]);
@@ -48,6 +55,7 @@ void enable_raw_mode(){ //function to turn on raw mode (deactivates enter for th
 
 //9x9 map, matrix has to be 9*2 x 9*2. 18x18, so the walls can be placed inside the matrix
 int main(){
+    enable_raw_mode();
     int b_size = BASE_SIZE*2+1; //control variable
     char board[b_size][b_size]; //creates the board
 
@@ -55,6 +63,20 @@ int main(){
     print_board(b_size, board);
     
     option gamemode = select_gamemode(b_size, board);
+    switch(gamemode){
+        case LOAD: break;
+            //load save
+
+        case PVP: break;
+
+        case PVE: break;
+
+        case QUIT: 
+            print_board(b_size, board);
+            printf("\nThanks for playing!\n\n"); 
+            return 0; 
+            break;
+    }
 }
 
 input get_input(){
@@ -70,15 +92,16 @@ input get_input(){
             switch (seq[1]){ //checks what arrow is
                 case 'A': return UP; break;
                 case 'B': return DOWN; break;
-                case 'C': return LEFT; break;
-                case 'D': return RIGHT; break;
+                case 'C': return RIGHT; break;
+                case 'D': return LEFT; break;
             }
         }
     }
     else{
         switch (c){
             case '\n': return ENTER; break;
-            case '\b': return BACK; break;
+            case 127: return BACK; break;
+            case ' ': return SPACE; break;
         }
     }
     return -1;
@@ -91,10 +114,15 @@ void construct_board(int b_size, char board[b_size][b_size]) {
             
             if (i % 2 == 0 && j % 2 == 0)
                 board[i][j] = '+';
+
             else if (i%2 == 0)
-                board[i][j] = '-';
+                if (i == 0 || i == b_size-1) board[i][j] = '=';
+                else board[i][j] = '-';
+
             else if (j%2 == 0)
-                board[i][j] = '|';
+                if (j == 0 || j == b_size-1) board[i][j] = 'I';
+                else board[i][j] = '|';
+
             else
                 board[i][j] = ' ';
         }
@@ -114,27 +142,60 @@ void print_board(int b_size, char board[b_size][b_size]){
     }
 }
 
-int select_gamemode(int b_size, char board[b_size][b_size]){ //UNFINISHED---------------------------------------------------------------------------
+int select_gamemode(int b_size, char board[b_size][b_size]){ 
     int aux = -1, i = 0;
+    char arr[] = {'<', ' ', ' ', ' '};
 
-    print_board(b_size, board);
-    printf("\n\nWelcome to Quoridor made by Enzo and Joao Cleber\nPlease select an option\n\nLOAD SAVE         PLAYER VS PLAYER         PLAYER VS MACHINE\n");
-    
-    aux = get_input();
-    while(aux != (LEFT || RIGHT || ENTER)){
-        aux = get_input(); //gets character until its a valid one for the menu
+    while(aux != ENTER){
+
+        print_board(b_size, board);
+        printf("\n\nWelcome to Quoridor made by Enzo and Joao Cleber\nPlease select an option\n\n");
+        printf("LOAD SAVE %c         PLAYER VS PLAYER %c         PLAYER VS BOT %c         LEAVE GAME %c\n", arr[0], arr[1], arr[2], arr[3]); //selection screen
+        
+        aux = get_input();
+        while(aux != LEFT && aux != RIGHT && aux != ENTER){
+            aux = get_input(); //gets character until its a valid one for the menu
+        }
+
+        switch(aux){
+            case LEFT:
+                arr[i] = ' ';
+                i = (i - 1 + N_OPTIONS) % N_OPTIONS; //prevents going above or under 0/2
+                arr[i] = '<';
+                break;
+
+            case RIGHT:
+                arr[i] = ' ';
+                i = (i + 1) % N_OPTIONS; //prevents going above or under 0/2
+                arr[i] = '<';
+                break;
+        }
     }
-
-    switch(aux){
-        case LEFT: i-=1; break;
-        case RIGHT: i+=1; break;
-        case ENTER: //needs to finish
-    }
-    
-    
-
-    
-
-    return 0;
+    //undone: needs an if to check if the user has a save, if not, calls recursively the function 
+    return i;
 }
+
+char* player_names(option mode){
+    player p1; //to do: create a struct array to modify the number of players easily
+    player p2;
+    switch(mode){
+        case PVP:
+            printf("Player 1 please insert your name (10 characters maximum):\n");
+            fgets(p.name1, sizeof(p.name1), stdin);
+            
+            printf("Player 2 please insert your name (10 characters maximum):\n");
+            fgets(p.name2, sizeof(p.name2), stdin);
+            break;
+        case PVE: break;
+    }
+    
+}
+
+winner pvp_mode(int b_size, char board[b_size][b_size]){
+    player_names(PVP);
+
+    // system("clear");
+    // printf("");
+}
+
 
