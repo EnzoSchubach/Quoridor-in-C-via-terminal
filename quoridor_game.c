@@ -20,20 +20,31 @@ typedef enum {LOAD = 0, PVP = 1, PVE = 2, QUIT = 3} option;
 typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
 typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
 typedef enum {INVALID = 0, VALID = 1} validation;
+typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
 
 //macros
 #define BASE_SIZE 9 //24 é o tamanho máximo onde dá pra ver o mata todo + texto no VScode
 #define WALL_SIZE 2
 #define N_OPTIONS 4
+#define MAX_BOTS 3
+#define NAME_SIZE 10
+#define N_PLAYERS 3
+
+//robot names
+const char name_list[MAX_BOTS][NAME_SIZE] = {
+    "BILL",
+    "PULGA",
+    "JUBA"
+};
 
 //function pre-calls (just so we doesnt need to organize every function in order)
 void construct_board(int b_size, char board[b_size][b_size]);
 void print_board(int b_size, char board[b_size][b_size]);
 int select_gamemode(int b_size, char board[b_size][b_size]);
-void player_names(option mode, player *p1, player *p2);
-void setup_players(int b_size, char board[b_size][b_size], player *p1, player *p2);
+void player_names(option mode, player p[]);
+void setup_players(int b_size, char board[b_size][b_size], player p[]);
 void pvp_mode(int b_size, char board[b_size][b_size]);
-validation player_actions(int b_size, char board[b_size][b_size], player *p, player *enemy, input p_input, int *turn_count);
+validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count);
 
 
 void disable_raw_mode() {
@@ -210,80 +221,83 @@ int select_gamemode(int b_size, char board[b_size][b_size]){
     return i;
 }
 
-void player_names(option mode, player *p1, player *p2){
-
+void player_names(option mode, player p[]){
     system("clear");
     disable_raw_mode();
-    switch(mode){
-        case PVP:
-            printf("Player 1, insert your name\n");
-            fgets(p1->name, sizeof(p1->name), stdin);
-            p1->name[strcspn(p1->name, "\n")] = 0;
 
-            int ch;
-            while ((ch = getchar()) != '\n' && ch != EOF);
+    if(mode == PVP){
+        for(int i = 0; i < N_PLAYERS; i++){
+            printf("Player %d, insert your name: ", i+1);
+            fflush(stdout);
 
-            printf("Player 2, insert your name\n");
-            fgets(p2->name, sizeof(p2->name), stdin);
-            p2->name[strcspn(p2->name, "\n")] = 0;
-
-            int ch2;
-            while ((ch2 = getchar()) != '\n' && ch2 != EOF);
-
-            break;
-
-        case PVE:
-            printf("Please, insert your name\n");
-            fgets(p1->name, sizeof(p1->name), stdin);
-            p1->name[strcspn(p1->name, "\n")] = 0; 
-            flush_input(); 
-
-            strcpy(p2->name, "BILL");
-            break;
+            fgets(p[i].name, NAME_SIZE, stdin);
+            p[i].name[strcspn(p[i].name, "\n")] = '\0';
+        }
     }
-    flush_input();
+    else if(mode == PVE){
+        printf("Please, insert your name: ");
+        fflush(stdout);
+
+        fgets(p[0].name, NAME_SIZE, stdin);
+        p[0].name[strcspn(p[0].name, "\n")] = '\0';
+
+        for(int i = 1; i < N_PLAYERS; i++){
+            strcpy(p[i].name, name_list[i-1]);
+        }
+    }
+
     enable_raw_mode();
 }
 
-void setup_players(int b_size, char board[b_size][b_size], player *p1, player *p2){
-    
-    p1->icon = p1->name[0];
-    p2->icon = p2->name[0];
 
-    p1->x[0] = 1;
-    p2->x[0] = b_size-2;
+void player_spawn(int b_size, spawn spw, int *x, int *y) {
+    int middle = b_size / 2;
 
-    if(BASE_SIZE%2!=0){
-        
-        board[1][(b_size/2)] = p1->icon;
-        p1->y[0] = b_size/2;
+    switch (spw) {
+        case TOP:
+            *x = 1;
+            *y = middle;
+            break;
 
-        board[b_size-2][(b_size/2)] = p2->icon;
-        p2->y[0] = b_size/2;
+        case BOT:
+            *x = b_size - 2;
+            *y = middle;
+            break;
+
+        case WEST:
+            *x = middle;
+            *y = 1;
+            break;
+
+        case EAST:
+            *x = middle;
+            *y = b_size - 2;
+            break;
     }
-    else {
-        board[1][(b_size/2)+1] = p1->icon;
-        p1->y[0] = (b_size/2)+1;
+}
 
-        board[b_size-2][(b_size/2)+1] = p2->icon;
-        p2->y[0] = (b_size/2)+1;
+void setup_players(int b_size, char board[b_size][b_size], player p[]) {
+
+    spawn sides[4] = {TOP, BOT, EAST, WEST};
+
+    for (int i = 0; i < N_PLAYERS; i++) {
+        p[i].icon = p[i].name[0] ? p[i].name[0] : '?';
+
+        player_spawn(b_size, sides[i], &p[i].x[0], &p[i].y[0]);
+
+        board[p[i].x[0]][p[i].y[0]] = p[i].icon;
+
+        p[i].x[1] = -1;
+        p[i].y[1] = -1;
     }
-
-    p1->x[1] = -1;
-    p2->x[1] = -1;
-
-    p1->y[1] = -1;
-    p2->y[1] = -1;
-
 }
 
 
 void pvp_mode(int b_size, char board[b_size][b_size]){
-    player p1; //to do: create a struct array to modify the number of players easily
-    player p2;
+    player p[N_PLAYERS];
 
-    player_names(PVP, &p1, &p2);
-    setup_players(b_size, board, &p1, &p2);
+    player_names(PVP, p);
+    setup_players(b_size, board, p);
     print_board(b_size, board);
 
     winner winner = NONE;
@@ -293,38 +307,19 @@ void pvp_mode(int b_size, char board[b_size][b_size]){
     while(winner == NONE){
         turn_count+=1;
         flush_input();
-        
-
 
         while(check == INVALID){
             print_board(b_size, board);
-            printf("\n\033[34mTURN %d\nIt's your turn %s\nMake your move!\n\033[0m", turn_count, p2.name);
+            printf("\n\033[34mTURN %d\nIt's your turn %s\nMake your move!\n\033[0m", turn_count, p[turn_count%N_PLAYERS].name);
             input a = get_input();
-            check = player_actions(b_size, board, &p2, &p1, a, &turn_count);
+            check = player_actions(b_size, board, p, a, &turn_count);
+            flush_input();
             print_board(b_size, board);
         }
         
         check = INVALID;
         sleep(1);
-        flush_input();
-
-        turn_count+=1;
-        flush_input();
         
-
-
-        while(check == INVALID){
-            print_board(b_size, board);
-            printf("\n\033[34mTURN %d\nIt's your turn %s\nMake your move!\n\033[0m", turn_count, p1.name);
-            input b = get_input();
-            check = player_actions(b_size, board, &p1, &p2, b, &turn_count);
-            print_board(b_size, board);
-        }
-        
-
-        check = INVALID;
-        sleep(1);
-        flush_input();
     }
     //sistema de turnos
 }
@@ -334,64 +329,83 @@ void realloc_history(player *p){
     p->y[1] = p->y[0];
 }
 
-validation player_actions(int b_size, char board[b_size][b_size], player *p, player *enemy, input p_input, int *turn_count){
+validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count){
     
+    int i = *turn_count%N_PLAYERS; //player index
+
     switch(p_input){
         case UP:
-            if(board[(p->x[0])-1][(p->y[0])] == '=' || (board[(p->x[0])-2][(p->y[0])] == enemy-> icon)){
+            if(board[(p[i].x[0])-1][(p[i].y[0])] == '='){
                 return INVALID;
             }
-            board[p->x[0]][p->y[0]] = ' ';
-            realloc_history(p);
-            p->x[0] -= 2;
-            board[p->x[0]][p->y[0]] = p->icon;
+            for(int j = 0; j < N_PLAYERS; j++){
+                if(board[(p[i].x[0])-2][(p[i].y[0])] == p[j].icon) return INVALID;
+            }
+            board[p[i].x[0]][p[i].y[0]] = ' ';
+            realloc_history(&p[i]);
+            p[i].x[0] -= 2;
+            board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
             break;
 
         case DOWN:
-            if(board[(p->x[0])+1][(p->y[0])] == '=' || (board[(p->x[0])+2][(p->y[0])] == enemy-> icon)){
+            if(board[(p[i].x[0])+1][(p[i].y[0])] == '='){
                 return INVALID;
             }
-            board[p->x[0]][p->y[0]] = ' ';
-            realloc_history(p);
-            p->x[0] += 2;
-            board[p->x[0]][p->y[0]] = p->icon;
+            for(int j = 0; j < N_PLAYERS; j++){
+                if(board[(p[i].x[0])+2][(p[i].y[0])] == p[j].icon) return INVALID;
+            }
+            board[p[i].x[0]][p[i].y[0]] = ' ';
+            realloc_history(&p[i]);
+            p[i].x[0] += 2;
+            board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
             break;
 
         case LEFT:
-            if(board[(p->x[0])][(p->y[0])-1] == 'I' || (board[(p->x[0])][(p->y[0])-2] == enemy-> icon)){
+            if(board[(p[i].x[0])][(p[i].y[0])-1] == 'I'){
                 return INVALID;
             }
-            board[p->x[0]][p->y[0]] = ' ';
-            realloc_history(p);
-            p->y[0] -= 2;
-            board[p->x[0]][p->y[0]] = p->icon;
+            for(int j = 0; j < N_PLAYERS; j++){
+                if(board[(p[i].x[0])][(p[i].y[0])-2] == p[j].icon) return INVALID;
+            }
+            board[p[i].x[0]][p[i].y[0]] = ' ';
+            realloc_history(&p[i]);
+            p[i].y[0] -= 2;
+            board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
             break;
 
         case RIGHT:
-            if(board[(p->x[0])][(p->y[0])+1] == 'I' || (board[(p->x[0])][(p->y[0])+2] == enemy-> icon)){
+            if(board[(p[i].x[0])][(p[i].y[0])+1] == 'I'){
                 return INVALID;
             }
-            board[p->x[0]][p->y[0]] = ' ';
-            realloc_history(p);
-            p->y[0] += 2;
-            board[p->x[0]][p->y[0]] = p->icon;
+            for(int j = 0; j < N_PLAYERS; j++){
+                if(board[(p[i].x[0])][(p[i].y[0])+2] == p[j].icon) return INVALID;
+            }
+            board[p[i].x[0]][p[i].y[0]] = ' ';
+            realloc_history(&p[i]);
+            p[i].y[0] += 2;
+            board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
             break;
 
         case BACK:
-            if(enemy->x[1] == -1){
+            int aux = (i-1+N_PLAYERS)%N_PLAYERS;
+            if(p[aux].x[1] == -1){
                 printf("\n\033[31mWARNING: Invalid action, you can't go back an action you never made\033[0m\n");
                 sleep(2);
                 return INVALID;
             }
 
-            board[enemy->x[0]][enemy->y[0]] = ' ';
-            enemy->x[0] = enemy->x[1];
-            enemy->y[0] = enemy->y[1];
-            board[enemy->x[0]][enemy->y[0]] = enemy->icon;
+            board[p[aux].x[0]][p[aux].y[0]] = ' ';
+            p[aux].x[0] = p[aux].x[1];
+            p[aux].y[0] = p[aux].y[1];
+
+            board[p[aux].x[0]][p[aux].y[0]] = p[aux].icon;
+
+            p[aux].x[1] = -1;
+            p[aux].y[1] = -1;
 
             *turn_count-=2;
             return VALID;
@@ -401,3 +415,5 @@ validation player_actions(int b_size, char board[b_size][b_size], player *p, pla
     }
     return VALID;
 }
+
+//to do: trocar matriz por uma gerada por malloc, corrigir o back porque ele só tá voltando a ultima jogada feita e não as ultimas 2 jogadas de cada jogador na ordem de turno
