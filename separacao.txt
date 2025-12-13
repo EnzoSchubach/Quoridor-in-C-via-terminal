@@ -1,0 +1,17 @@
+divisao coisas p fzr trabalho de lp1:
+
+enzo:
+-escolha dos nomes
+-movimentacao do boneco
+
+
+
+carne:
+-funcao p posicionar paredes
+-rotacionar parede, trocar entre parede e andar, n de paredes
+	
+	
+
+
+nós dos:
+-impedir o outro jogador de trancar o outro

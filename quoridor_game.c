@@ -17,14 +17,15 @@ typedef struct {
 
 //enums
 typedef enum {LOAD = 0, PVP = 1, PVE = 2, QUIT = 3} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
+typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6, R = 7 } input;
 typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
 typedef enum {INVALID = 0, VALID = 1} validation;
 typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
+typedef enum {HORIZONTAL = 0, VERTICAL = 1} orientation;
 
 //macros
 #define BASE_SIZE 9 //24 é o tamanho máximo onde dá pra ver o mata todo + texto no VScode
-#define WALL_SIZE 2
+#define WALL_SIZE 3
 #define N_OPTIONS 4
 #define MAX_BOTS 3
 #define NAME_SIZE 10
@@ -45,6 +46,15 @@ void player_names(option mode, player p[]);
 void setup_players(int b_size, char board[b_size][b_size], player p[]);
 void pvp_mode(int b_size, char board[b_size][b_size]);
 validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count);
+orientation rotate_wall(orientation current_orientation);
+void update_temp_wall(int b_size, char board[b_size][b_size], int *R, int *C, orientation *current_orientation);
+void clear_wall(int b_size, char board[b_size][b_size], int r, int c, orientation o);
+void draw_wall(int b_size, char board[b_size][b_size], int r, int c, orientation o);
+int can_place_wall(int b_size, char board[b_size][b_size], int r, int c, orientation o);
+input get_input();
+
+
+
 
 
 void disable_raw_mode() {
@@ -136,9 +146,10 @@ input get_input(){
             case '\n': return ENTER; break;
             case 127: return BACK; break;
             case ' ': return SPACE; break;
+            case 'R': return R; break;
         }
     }
-    return -1;
+    return INVALID;
 }
 
 
@@ -300,11 +311,11 @@ void pvp_mode(int b_size, char board[b_size][b_size]){
     setup_players(b_size, board, p);
     print_board(b_size, board);
 
-    winner winner = NONE;
+    winner p_winner = NONE;
     int turn_count = 0;
     validation check = INVALID;
 
-    while(winner == NONE){
+    while(p_winner == NONE){
         turn_count+=1;
         flush_input();
 
@@ -319,6 +330,8 @@ void pvp_mode(int b_size, char board[b_size][b_size]){
         
         check = INVALID;
         sleep(1);
+        flush_input();
+
         
     }
     //sistema de turnos
@@ -331,7 +344,7 @@ void realloc_history(player *p){
 
 validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count){
     
-    int i = *turn_count%N_PLAYERS; //player index
+    int i = (*turn_count - 1) % N_PLAYERS;  //player index
 
     switch(p_input){
         case UP:
@@ -408,12 +421,122 @@ validation player_actions(int b_size, char board[b_size][b_size], player p[], in
             p[aux].y[1] = -1;
 
             *turn_count-=2;
+
             return VALID;
 
-        case SPACE:
-            //funcoes das paredes
+        case SPACE:{
+            int Rh = b_size - 3;   // linha par
+            int Ch = 1;            // coluna ímpar válida
+
+            orientation ori = HORIZONTAL;
+
+            draw_wall(b_size, board, Rh, Ch, ori);
+            update_temp_wall(b_size, board, &Rh, &Ch, &ori);
+
+            return VALID;
+        }
+
+        case ENTER:
+
+            break;
+
+        case R:
+
+        break;
     }
     return VALID;
 }
+
+orientation rotate_wall(orientation current_orientation) {  
+    return (current_orientation == HORIZONTAL) ? VERTICAL : HORIZONTAL;
+}
+
+void clear_wall(int b_size, char board[b_size][b_size], int r, int c, orientation o)
+{
+    for (int k = 0; k < WALL_SIZE; k++) {
+        if (o == HORIZONTAL) {
+            if (board[r][c + k] == '=')
+                board[r][c + k] = '-';
+        } else {
+            if (board[r + k][c] == 'I')
+                board[r + k][c] = '|';
+        }
+    }
+}
+
+
+void draw_wall(int b_size,
+               char board[b_size][b_size],
+               int r, int c, orientation o)
+{
+    for (int k = 0; k < WALL_SIZE; k++) {
+        if (o == HORIZONTAL)
+            board[r][c + k] = '=';
+        else
+            board[r + k][c] = 'I';
+    }
+}
+
+int can_place_wall(int b_size, char board[b_size][b_size], int r, int c, orientation o)
+{
+    for (int k = 0; k < WALL_SIZE; k++) {
+        int rr = (o == HORIZONTAL) ? r : r + k;
+        int cc = (o == HORIZONTAL) ? c + k : c;
+
+        if (rr <= 0 || rr >= b_size - 1 ||
+            cc <= 0 || cc >= b_size - 1)
+            return 0;
+
+        if (o == HORIZONTAL) {
+            if (board[rr][cc] != '-')
+                return 0;
+        } else {
+            if (board[rr][cc] != '|')
+                return 0;
+        }
+    }
+    return 1;
+}
+
+void update_temp_wall(int b_size, char board[b_size][b_size], int *R, int *C, orientation *current_orientation){
+    int last_r = *R;
+    int last_c = *C;
+    orientation last_o = *current_orientation;
+
+    while (1) {
+        input action = get_input();
+
+        clear_wall(b_size, board, last_r, last_c, last_o);
+
+        if (action == R)
+            *current_orientation = rotate_wall(*current_orientation);
+
+        if (action == UP)    *R -= 2;
+        if (action == DOWN)  *R += 2;
+        if (action == LEFT)  *C -= 2;
+        if (action == RIGHT) *C += 2;
+
+        if (!can_place_wall(b_size, board,
+                            *R, *C, *current_orientation)) {
+            *R = last_r;
+            *C = last_c;
+            *current_orientation = last_o;
+        }
+
+        draw_wall(b_size, board,
+                  *R, *C, *current_orientation);
+
+        print_board(b_size, board);
+
+        last_r = *R;
+        last_c = *C;
+        last_o = *current_orientation;
+
+        if (action == ENTER)
+            break;
+    }
+}
+
+
 
 //to do: trocar matriz por uma gerada por malloc, corrigir o back porque ele só tá voltando a ultima jogada feita e não as ultimas 2 jogadas de cada jogador na ordem de turno
