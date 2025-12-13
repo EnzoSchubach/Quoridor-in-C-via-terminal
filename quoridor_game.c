@@ -17,7 +17,7 @@ typedef struct {
 
 //enums
 typedef enum {LOAD = 0, PVP = 1, PVE = 2, QUIT = 3} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
+typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6, ESC = 7} input;
 typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
 typedef enum {INVALID = 0, VALID = 1} validation;
 typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
@@ -28,7 +28,7 @@ typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
 #define N_OPTIONS 4
 #define MAX_BOTS 3
 #define NAME_SIZE 10
-#define N_PLAYERS 3
+#define N_PLAYERS 4
 
 //robot names
 const char name_list[MAX_BOTS][NAME_SIZE] = {
@@ -129,7 +129,7 @@ input get_input(){
                 case 'C': return RIGHT; break;
                 case 'D': return LEFT; break;
             }
-        }
+        } else return ESC;
     }
     else{
         switch (c){
@@ -141,6 +141,18 @@ input get_input(){
     return -1;
 }
 
+
+char **create_board(int b_size) {
+    char **board = malloc(b_size * sizeof *board);
+    if (!board) return NULL;
+
+    for (int i = 0; i < b_size; i++) {
+        board[i] = malloc(b_size * sizeof *board[i]);
+        if (!board[i]) return NULL;
+    }
+
+    return board;
+}
 
 void construct_board(int b_size, char board[b_size][b_size]) {
     for (int i = 0; i < b_size; i++) {
@@ -221,9 +233,15 @@ int select_gamemode(int b_size, char board[b_size][b_size]){
     return i;
 }
 
+void discard_line(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
 void player_names(option mode, player p[]){
     system("clear");
     disable_raw_mode();
+    int c;
 
     if(mode == PVP){
         for(int i = 0; i < N_PLAYERS; i++){
@@ -231,7 +249,11 @@ void player_names(option mode, player p[]){
             fflush(stdout);
 
             fgets(p[i].name, NAME_SIZE, stdin);
-            p[i].name[strcspn(p[i].name, "\n")] = '\0';
+            if (!strchr(p[i].name, '\n')) {
+                discard_line();
+            } else {
+                p[i].name[strcspn(p[i].name, "\n")] = '\0';
+            }
         }
     }
     else if(mode == PVE){
@@ -239,7 +261,11 @@ void player_names(option mode, player p[]){
         fflush(stdout);
 
         fgets(p[0].name, NAME_SIZE, stdin);
-        p[0].name[strcspn(p[0].name, "\n")] = '\0';
+        if (!strchr(p[0].name, '\n')) {
+            discard_line();
+        } else {
+            p[0].name[strcspn(p[0].name, "\n")] = '\0';
+        }
 
         for(int i = 1; i < N_PLAYERS; i++){
             strcpy(p[i].name, name_list[i-1]);
@@ -409,6 +435,13 @@ validation player_actions(int b_size, char board[b_size][b_size], player p[], in
 
             *turn_count-=2;
             return VALID;
+        
+        case ESC:
+            for (int i = 0; i < b_size; i++) {
+                free(board[i]);
+            }
+            free(board);
+            board = NULL;
 
         case SPACE:
             //funcoes das paredes
