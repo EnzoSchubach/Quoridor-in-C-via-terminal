@@ -4,31 +4,42 @@
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
 
 //structs
 struct termios orig_termios;
+
+typedef struct{
+    int wall_x;
+    int wall_y;
+} wall;
+
 typedef struct {
     char name[10];
     char icon;
     int x[2];
     int y[2];
+    wall walls[7];
+    int wc;
 } player;
+
 
 //enums
 typedef enum {LOAD = 0, PVP = 1, PVE = 2, QUIT = 3} option;
 typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
 typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
-typedef enum {INVALID = 0, VALID = 1} validation;
+typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3} validation;
 typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
-
+typedef enum {INSERT = 0, DELETE = 0} instruction;
+typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
 //macros
 #define BASE_SIZE 9 //24 é o tamanho máximo onde dá pra ver o mata todo + texto no VScode
 #define WALL_SIZE 2
 #define N_OPTIONS 4
 #define MAX_BOTS 3
 #define NAME_SIZE 10
-#define N_PLAYERS 3
+#define N_PLAYERS 4
 
 //robot names
 const char name_list[MAX_BOTS][NAME_SIZE] = {
@@ -45,6 +56,8 @@ void player_names(option mode, player p[]);
 void setup_players(int b_size, char board[b_size][b_size], player p[]);
 void pvp_mode(int b_size, char board[b_size][b_size]);
 validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count);
+validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state);
+void place_wall(int b_size, char board[b_size][b_size], int *x, int *y, instruction mode, orientation *state, bool temporary);
 
 
 void disable_raw_mode() {
@@ -90,7 +103,7 @@ int main(){
     char board[b_size][b_size]; //creates the board
 
     construct_board(b_size, board); // calls the function to prepare the board for play
-    print_board(b_size, board);
+    // print_board(b_size, board);
     
     option gamemode = select_gamemode(b_size, board);
     switch(gamemode){
@@ -142,6 +155,18 @@ input get_input(){
 }
 
 
+char **create_board(int b_size) {
+    char **board = malloc(b_size * sizeof *board);
+    if (!board) return NULL;
+
+    for (int i = 0; i < b_size; i++) {
+        board[i] = malloc(b_size * sizeof *board[i]);
+        if (!board[i]) return NULL;
+    }
+
+    return board;
+}
+
 void construct_board(int b_size, char board[b_size][b_size]) {
     for (int i = 0; i < b_size; i++) {
         for (int j = 0; j < b_size; j++) {
@@ -178,6 +203,12 @@ void print_board(int n, char b[n][n]){
                 case '|':
                     printf(j%2==0 ? " \033[33m%c\033[0m " : "\033[33m%c\033[0m", c);
                     break;
+
+                case '~':
+                case ';':
+                    printf(j%2==0 ? " \033[1;32m%c\033[0m " : "\033[1;32m%c\033[0m", c);
+                    break;
+                
                 default:
                     printf(j%2==0 ? " %c " : "%c", c);
             }
@@ -221,6 +252,11 @@ int select_gamemode(int b_size, char board[b_size][b_size]){
     return i;
 }
 
+void discard_line(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
 void player_names(option mode, player p[]){
     system("clear");
     disable_raw_mode();
@@ -231,7 +267,11 @@ void player_names(option mode, player p[]){
             fflush(stdout);
 
             fgets(p[i].name, NAME_SIZE, stdin);
-            p[i].name[strcspn(p[i].name, "\n")] = '\0';
+            if (!strchr(p[i].name, '\n')) {
+                discard_line();
+            } else {
+                p[i].name[strcspn(p[i].name, "\n")] = '\0';
+            }
         }
     }
     else if(mode == PVE){
@@ -239,7 +279,11 @@ void player_names(option mode, player p[]){
         fflush(stdout);
 
         fgets(p[0].name, NAME_SIZE, stdin);
-        p[0].name[strcspn(p[0].name, "\n")] = '\0';
+        if (!strchr(p[0].name, '\n')) {
+            discard_line();
+        } else {
+            p[0].name[strcspn(p[0].name, "\n")] = '\0';
+        }
 
         for(int i = 1; i < N_PLAYERS; i++){
             strcpy(p[i].name, name_list[i-1]);
@@ -411,9 +455,176 @@ validation player_actions(int b_size, char board[b_size][b_size], player p[], in
             return VALID;
 
         case SPACE:
-            //funcoes das paredes
+            
+            validation verify = INVALID;
+            input in = -1;
+            orientation direction = HORIZONTAL;
+            
+            p[i].walls[p[i].wc].wall_x = 4;
+            p[i].walls[p[i].wc].wall_y = 3;
+
+            // for(int i = 0; i < 2; i++){
+            //     board[4][1+i*2] = '~';
+            // }
+
+            print_board(b_size, board);
+            while(1){
+                
+                in = get_input();
+
+                verify = wall_actions(b_size, board, &p[i].walls[p[i].wc].wall_x, &p[i].walls[p[i].wc].wall_y, in, &direction);
+                if(verify==VALID)return VALID;
+                if(verify==CANCEL)return INVALID;
+
+                print_board(b_size, board);
+                
+            }
+
+        case ENTER:
+            break;
     }
     return VALID;
 }
 
+//validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state)
+char base_tile(int i, int j){
+    if(i % 2 == 0 && j % 2 == 0) return '+';
+    if(i % 2 == 0) return '-';
+    if(j % 2 == 0) return '|';
+    return ' ';
+}
+
+void place_wall(int b_size, char board[b_size][b_size], int *x, int *y, instruction mode, orientation *state, bool temporary){
+    char char_v;
+    char char_h;
+    if(temporary){
+        char_v=';';
+        char_h='~';
+    }
+    else{
+        char_v='I';
+        char_h='=';
+    }
+
+    switch(*state){
+        case VERTICAL:
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(mode == INSERT){
+                    board[*x+i][*y] = char_v; 
+                }
+                else{
+                    board[*x+i][*y] = base_tile(*x+i, *y);
+                }
+            }
+            break;
+
+        case HORIZONTAL:
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(mode == INSERT){
+                    board[*x][*y-i] = char_h; 
+                }
+                else{
+                    board[*x][*y-i] = base_tile(*x, *y+i);
+                }
+            }
+            break;
+    }
+}
+
+void update_overlay(int b_size, char board[b_size][b_size], char overlay[b_size][b_size]){
+    for(int i = 0; i < b_size; i++){
+        for(int j = 0; j < b_size; j++){
+            overlay[i][j] = board[i][j];
+        }
+    }
+}
+
+validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state){
+    //adicionar lógica pra trocar se a parede for horizontal ou vertical
+    orientation old_state = *state;
+    int old_x = *x;
+    int old_y = *y;
+    char overlay[b_size][b_size];
+    update_overlay(b_size, board, overlay); 
+    
+    switch(in){
+        case DOWN: 
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(*x+2 > b_size-2){
+                    return INVALID;
+                }
+            }
+
+            place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
+            *x+=2;
+            place_wall(b_size, overlay, x, y, INSERT, state, true);
+            return REPEAT;
+
+        case UP: 
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(*x-2 < 1){
+                    return INVALID;
+                }
+            }
+
+            place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
+            *x-=2;
+            place_wall(b_size, overlay, x, y, INSERT, state, true);
+            return REPEAT;
+
+        case LEFT: 
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(*y-2 < 1){
+                    return INVALID;
+                }
+            }
+
+            place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
+            *y-=2;
+            place_wall(b_size, overlay, x, y, INSERT, state, true);
+            return REPEAT;
+
+        case RIGHT:
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if(*y+2 > b_size-2){
+                    return INVALID;
+                }
+            }
+
+            place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
+            *y+=2;
+            place_wall(b_size, overlay, x, y, INSERT, state, true);
+            return REPEAT;
+
+        case ENTER:
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if((*state == VERTICAL) && board[*x + i][*y] != '|') return INVALID;
+                if((*state == HORIZONTAL) && board[*x][*y + i] != '-') return INVALID;
+            }
+            place_wall(b_size, board, x, y, INSERT, state, false);
+            return VALID;
+
+        case SPACE:
+            place_wall(b_size, board, &old_x, &old_y, DELETE, &old_state, true);
+
+            *state = (*state == VERTICAL) ? HORIZONTAL : VERTICAL;
+
+            for(int i = 0; i < WALL_SIZE*2; i+=2){
+                if((*state == HORIZONTAL) && ((*y < 1) || (*y + (WALL_SIZE-1)*2 > b_size-1))){
+                    *state = VERTICAL;
+                    return INVALID;
+                } 
+                if((*state == VERTICAL) && ( (*x+i > b_size-1) || (*x < 1) )){
+                    *state = HORIZONTAL;
+                    return INVALID;
+                }
+            }
+            place_wall(b_size, board, x, y, INSERT, state, true);
+            return REPEAT;
+
+        case BACK:
+            return CANCEL;
+    }
+    return INVALID;
+}
 //to do: trocar matriz por uma gerada por malloc, corrigir o back porque ele só tá voltando a ultima jogada feita e não as ultimas 2 jogadas de cada jogador na ordem de turno
