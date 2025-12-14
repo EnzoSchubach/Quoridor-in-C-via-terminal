@@ -31,7 +31,7 @@ typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE 
 typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
 typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3} validation;
 typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
-typedef enum {INSERT = 0, DELETE = 0} instruction;
+typedef enum {INSERT = 0, DELETE = 1} instruction;
 typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
 //macros
 #define BASE_SIZE 9 //24 é o tamanho máximo onde dá pra ver o mata todo + texto no VScode
@@ -56,8 +56,10 @@ void player_names(option mode, player p[]);
 void setup_players(int b_size, char board[b_size][b_size], player p[]);
 void pvp_mode(int b_size, char board[b_size][b_size]);
 validation player_actions(int b_size, char board[b_size][b_size], player p[], input p_input, int *turn_count);
-validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state);
+validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state, char overlay[b_size][b_size]);
 void place_wall(int b_size, char board[b_size][b_size], int *x, int *y, instruction mode, orientation *state, bool temporary);
+void update_overlay(int b_size, char board[b_size][b_size], char overlay[b_size][b_size]);
+input get_input();
 
 
 void disable_raw_mode() {
@@ -454,31 +456,42 @@ validation player_actions(int b_size, char board[b_size][b_size], player p[], in
             *turn_count-=2;
             return VALID;
 
-        case SPACE:
-            
+        case SPACE: {
             validation verify = INVALID;
             input in = -1;
             orientation direction = HORIZONTAL;
-            
+            char overlay[b_size][b_size];
+
             p[i].walls[p[i].wc].wall_x = 4;
             p[i].walls[p[i].wc].wall_y = 3;
 
-            // for(int i = 0; i < 2; i++){
-            //     board[4][1+i*2] = '~';
-            // }
+            update_overlay(b_size, board, overlay); 
+            for(int k = 0; k < 2; k++){
+                overlay[4][1 + k*2] = '~';
+            }
 
-            print_board(b_size, board);
+            print_board(b_size, overlay);
+
             while(1){
-                
+                update_overlay(b_size, board, overlay); 
                 in = get_input();
 
-                verify = wall_actions(b_size, board, &p[i].walls[p[i].wc].wall_x, &p[i].walls[p[i].wc].wall_y, in, &direction);
-                if(verify==VALID)return VALID;
-                if(verify==CANCEL)return INVALID;
+                verify = wall_actions(
+                    b_size, board,
+                    &p[i].walls[p[i].wc].wall_x,
+                    &p[i].walls[p[i].wc].wall_y,
+                    in, &direction, overlay
+                );
 
-                print_board(b_size, board);
-                
+                print_board(b_size, overlay);
+
+                if(verify == VALID)  return VALID;
+                if(verify == CANCEL) return INVALID; 
             }
+            break;
+        }
+
+            
 
         case ENTER:
             break;
@@ -494,40 +507,20 @@ char base_tile(int i, int j){
     return ' ';
 }
 
-void place_wall(int b_size, char board[b_size][b_size], int *x, int *y, instruction mode, orientation *state, bool temporary){
-    char char_v;
-    char char_h;
-    if(temporary){
-        char_v=';';
-        char_h='~';
-    }
-    else{
-        char_v='I';
-        char_h='=';
-    }
+void place_wall(int b_size, char board[b_size][b_size], int *x, int *y, instruction mode, orientation *state, bool temporary) {
+    char char_v = temporary ? ';' : 'I';
+    char char_h = temporary ? '~' : '=';
 
-    switch(*state){
-        case VERTICAL:
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(mode == INSERT){
-                    board[*x+i][*y] = char_v; 
-                }
-                else{
-                    board[*x+i][*y] = base_tile(*x+i, *y);
-                }
-            }
-            break;
-
-        case HORIZONTAL:
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(mode == INSERT){
-                    board[*x][*y-i] = char_h; 
-                }
-                else{
-                    board[*x][*y-i] = base_tile(*x, *y+i);
-                }
-            }
-            break;
+    if (*state == VERTICAL) {
+        // Preenche board[x][y] e board[x+2][y] (pulando o x+1 que é o cruzamento '+')
+        for (int i = 0; i <= 2; i += 2) { 
+            board[*x + i][*y] = (mode == INSERT) ? char_v : base_tile(*x + i, *y);
+        }
+    } else {
+        // Preenche board[x][y] e board[x][y+2] (pulando o y+1 que é o cruzamento '+')
+        for (int i = 0; i <= 2; i += 2) {
+            board[*x][*y + i] = (mode == INSERT) ? char_h : base_tile(*x, *y + i);
+        }
     }
 }
 
@@ -539,60 +532,48 @@ void update_overlay(int b_size, char board[b_size][b_size], char overlay[b_size]
     }
 }
 
-validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state){
+validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, input in, orientation *state, char overlay[b_size][b_size]){
     //adicionar lógica pra trocar se a parede for horizontal ou vertical
     orientation old_state = *state;
     int old_x = *x;
     int old_y = *y;
-    char overlay[b_size][b_size];
-    update_overlay(b_size, board, overlay); 
     
     switch(in){
-        case DOWN: 
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(*x+2 > b_size-2){
-                    return INVALID;
-                }
-            }
+        case UP: 
+            // O topo da parede é sempre o próprio *x
+            if (*x - 2 < 1) return INVALID;
 
             place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
-            *x+=2;
+            *x -= 2;
             place_wall(b_size, overlay, x, y, INSERT, state, true);
             return REPEAT;
 
-        case UP: 
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(*x-2 < 1){
-                    return INVALID;
-                }
-            }
+        case DOWN: 
+            // Se estiver na vertical, o "pé" da parede está em *x + 2
+            int limit_down = (*state == VERTICAL) ? *x + 2 : *x;
+            if (limit_down + 2 >= b_size - 1) return INVALID;
 
             place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
-            *x-=2;
+            *x += 2;
             place_wall(b_size, overlay, x, y, INSERT, state, true);
             return REPEAT;
 
         case LEFT: 
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(*y-2 < 1){
-                    return INVALID;
-                }
-            }
+            // O início da parede à esquerda é sempre o próprio *y
+            if (*y - 2 < 1) return INVALID;
 
             place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
-            *y-=2;
+            *y -= 2;
             place_wall(b_size, overlay, x, y, INSERT, state, true);
             return REPEAT;
 
         case RIGHT:
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if(*y+2 > b_size-2){
-                    return INVALID;
-                }
-            }
+            // Se estiver na horizontal, a "ponta" da parede está em *y + 2
+            int limit_right = (*state == HORIZONTAL) ? *y + 2 : *y;
+            if (limit_right + 2 >= b_size - 1) return INVALID;
 
             place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
-            *y+=2;
+            *y += 2;
             place_wall(b_size, overlay, x, y, INSERT, state, true);
             return REPEAT;
 
@@ -605,21 +586,34 @@ validation wall_actions(int b_size, char board[b_size][b_size], int *x, int *y, 
             return VALID;
 
         case SPACE:
-            place_wall(b_size, board, &old_x, &old_y, DELETE, &old_state, true);
+            // Remove a representação visual antiga antes de calcular a nova posição
+            place_wall(b_size, overlay, &old_x, &old_y, DELETE, &old_state, true);
 
-            *state = (*state == VERTICAL) ? HORIZONTAL : VERTICAL;
-
-            for(int i = 0; i < WALL_SIZE*2; i+=2){
-                if((*state == HORIZONTAL) && ((*y < 1) || (*y + (WALL_SIZE-1)*2 > b_size-1))){
-                    *state = VERTICAL;
-                    return INVALID;
-                } 
-                if((*state == VERTICAL) && ( (*x+i > b_size-1) || (*x < 1) )){
-                    *state = HORIZONTAL;
-                    return INVALID;
-                }
+            if (*state == HORIZONTAL) {
+                // Rotaciona de Horizontal para Vertical
+                *state = VERTICAL;
+                *x -= 1; // Sobe uma linha (de par para ímpar)
+                *y += 1; // Move uma coluna para a direita (de ímpar para par)
+            } else {
+                // Rotaciona de Vertical para Horizontal
+                *state = HORIZONTAL;
+                *x += 1; // Desce uma linha (de ímpar para par)
+                *y -= 1; // Move uma coluna para a esquerda (de par para ímpar)
             }
-            place_wall(b_size, board, x, y, INSERT, state, true);
+
+            // Validação de Limites após a rotação
+            if (*x < 1 || *x + (*state == VERTICAL ? 2 : 0) >= b_size - 1 ||
+                *y < 1 || *y + (*state == HORIZONTAL ? 2 : 0) >= b_size - 1) {
+                // Se a rotação for inválida (fora do mapa), desfaz a alteração
+                if (*state == VERTICAL) {
+                    *state = HORIZONTAL; *x += 1; *y -= 1;
+                } else {
+                    *state = VERTICAL; *x -= 1; *y += 1;
+                }
+                return INVALID;
+            }
+
+            place_wall(b_size, overlay, x, y, INSERT, state, true);
             return REPEAT;
 
         case BACK:
