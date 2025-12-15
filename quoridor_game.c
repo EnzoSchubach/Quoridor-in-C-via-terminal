@@ -7,12 +7,23 @@
 #include <stdbool.h>
 
 
+//enums
+typedef enum {LOAD = 0, TWOP = 1, THREEP = 2, FOURP = 3, TWOVTWO = 4, PVE = 5, QUIT = 6} option;
+typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6, SLASH = 7} input;
+typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
+typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3} validation;
+typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
+typedef enum {INSERT = 0, DELETE = 1} instruction;
+typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
+typedef enum {MOVE = 0, WALL = 1}action;
+
 //structs
 struct termios orig_termios;
 
 typedef struct{
     int wall_x;
     int wall_y;
+    orientation state;
 } wall;
 
 typedef struct {
@@ -23,17 +34,11 @@ typedef struct {
     wall walls[7];
     int wc;
     int win_pos;
+    int wall_breaks;
+    action last_action;
 } player;
 
 
-//enums
-typedef enum {LOAD = 0, TWOP = 1, THREEP = 2, FOURP = 3, TWOVTWO = 4, PVE = 5, QUIT = 6} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6} input;
-typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
-typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3} validation;
-typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
-typedef enum {INSERT = 0, DELETE = 1} instruction;
-typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
 //macros
 #define BASE_SIZE 9
 #define WALL_SIZE 2
@@ -152,6 +157,9 @@ int main(){
             free_board(b_size, board);
             return 0; 
             break;
+        case TWOVTWO:
+        case PVE:
+            break; 
     }
     
     free_board(b_size, board);
@@ -181,6 +189,7 @@ input get_input(){
             case '\n': return ENTER; break;
             case 127: return BACK; break;
             case ' ': return SPACE; break;
+            case '/': return SLASH; break;
         }
     }
     return -1;
@@ -337,6 +346,7 @@ void setup_players(int b_size, char **board, player p[], int n_players) {
         p[i].y[1] = -1;
 
         p[i].wc = 0;
+        p[i].wall_breaks = 1;
 
         switch (sides[i]) {
             case TOP:
@@ -356,7 +366,7 @@ void setup_players(int b_size, char **board, player p[], int n_players) {
 }
 
 
-winner check_win(int b_size, player p[], int n_players, int current_player_index) {
+winner check_win(player p[], int current_player_index) {
     int i = current_player_index;
     int target_pos = p[i].win_pos;
     
@@ -400,7 +410,7 @@ void pvp_mode(int b_size, char **board, int n_players){
         }
         
         if (check == VALID) {
-            game_winner = check_win(b_size, p, n_players, current_player_index);
+            game_winner = check_win(p, current_player_index);
         }
 
         check = INVALID;
@@ -436,6 +446,8 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             p[i].x[0] -= 2;
             board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
+            p[i].last_action = MOVE;
+
             break;
 
         case DOWN:
@@ -449,6 +461,8 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             realloc_history(&p[i]);
             p[i].x[0] += 2;
             board[p[i].x[0]][p[i].y[0]] = p[i].icon;
+
+            p[i].last_action = MOVE;
 
             break;
 
@@ -464,6 +478,8 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             p[i].y[0] -= 2;
             board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
+            p[i].last_action = MOVE;
+
             break;
 
         case RIGHT:
@@ -478,32 +494,52 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             p[i].y[0] += 2;
             board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
+            p[i].last_action = MOVE;
+
             break;
 
         case BACK:
-            int aux = (i-1+n_players)%n_players;
-            if(p[aux].x[1] == -1){
-                printf("\n\033[31mWARNING: Invalid action, you can't go back an action you never made\033[0m\n");
-                sleep(2);
+            int aux = (*turn_count - 1 + n_players) % n_players;
+
+            if (p[aux].last_action == WALL) {
+                if (p[aux].wc <= 0) {
+                    return INVALID;
+                }
+                
+                int wall_index = p[aux].wc - 1;
+                
+                place_wall(b_size, board, 
+                           &p[aux].walls[wall_index].wall_x,
+                           &p[aux].walls[wall_index].wall_y, 
+                           DELETE,
+                           (orientation *)&p[aux].walls[wall_index].state, 
+                           false);
+                
+                p[aux].wc -= 1;
+                p[aux].last_action = MOVE; 
+            } 
+            else if (p[aux].last_action == MOVE) {
+                 if(p[aux].x[1] == -1){ 
+                    return INVALID;
+                 }
+                
+                board[p[aux].x[0]][p[aux].y[0]] = ' ';
+                p[aux].x[0] = p[aux].x[1];
+                p[aux].y[0] = p[aux].y[1];
+                board[p[aux].x[0]][p[aux].y[0]] = p[aux].icon;
+
+                p[aux].x[1] = -1; 
+                p[aux].y[1] = -1;
+                p[aux].last_action = MOVE;
+            } else {
                 return INVALID;
             }
 
-            board[p[aux].x[0]][p[aux].y[0]] = ' ';
-            p[aux].x[0] = p[aux].x[1];
-            p[aux].y[0] = p[aux].y[1];
-
-            board[p[aux].x[0]][p[aux].y[0]] = p[aux].icon;
-
-            p[aux].x[1] = -1;
-            p[aux].y[1] = -1;
-
-            *turn_count-=2;
+            *turn_count -= 2;
             return VALID;
 
         case SPACE: {
             if(p[i].wc >= WALL_CAP){
-                printf("\n\033[31mWARNING: Invalid action, you ran out of walls\033[0m\n");
-                sleep(2);
                 return INVALID;
             }
 
@@ -514,7 +550,6 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             // Aloca dinamicamente o overlay para manter a consistência com char**
             char **overlay = create_board(b_size);
             if (overlay == NULL) {
-                printf("Erro de memória ao criar overlay.\n");
                 return INVALID;
             }
 
@@ -543,6 +578,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
 
                 if(verify == VALID) {
                     free_board(b_size, overlay);
+                    p[i].last_action = WALL;
                     return VALID;
                 }
                 if(verify == CANCEL) {
@@ -556,6 +592,8 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             
 
         case ENTER:
+            break;
+        case SLASH:
             break;
     }
     return VALID;
@@ -590,6 +628,8 @@ void update_overlay(int b_size, char **board, char **overlay){
         }
     }
 }
+
+
 
 validation wall_actions(int b_size, char **board, int *x, int *y, input in, orientation *state, char **overlay, player *p){
     orientation old_state = *state;
@@ -636,6 +676,12 @@ validation wall_actions(int b_size, char **board, int *x, int *y, input in, orie
                 if((*state == VERTICAL) && board[*x + i][*y] != '|') return INVALID;
                 if((*state == HORIZONTAL) && board[*x][*y + i] != '-') return INVALID;
             }
+            
+            int index = p->wc; 
+            p->walls[index].wall_x = *x;
+            p->walls[index].wall_y = *y;
+            p->walls[index].state = *state;
+
             place_wall(b_size, board, x, y, INSERT, state, false);
             p->wc+=1;
 
@@ -669,6 +715,8 @@ validation wall_actions(int b_size, char **board, int *x, int *y, input in, orie
 
         case BACK:
             return CANCEL;
+        case SLASH:
+            break;
     }
     return INVALID;
 }
