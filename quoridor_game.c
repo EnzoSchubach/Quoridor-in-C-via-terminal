@@ -8,14 +8,22 @@
 
 
 //enums
-typedef enum {LOAD = 0, TWOP = 1, THREEP = 2, FOURP = 3, TWOVTWO = 4, PVE = 5, QUIT = 6} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6, SLASH = 7} input;
-typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
-typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3} validation;
-typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn;
-typedef enum {INSERT = 0, DELETE = 1} instruction;
-typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
-typedef enum {MOVE = 0, WALL = 1}action;
+typedef enum {LOAD = 0, TWOP = 1, THREEP = 2, FOURP = 3, QUIT = 4} option;
+typedef enum {UP = 10, DOWN = 11, LEFT = 12, RIGHT = 13, ENTER = 14, BACK = 15, SPACE = 16, SLASH = 17} input;
+typedef enum {P1 = 20, P2 = 21, NONE = 22} winner;
+typedef enum {INVALID = 30, VALID = 31, CANCEL = 32, REPEAT = 33, AGAIN = 34} validation;
+typedef enum {TOP = 40, BOT = 41, WEST = 42, EAST = 43} spawn;
+typedef enum {INSERT = 50, DELETE = 51} instruction;
+typedef enum {VERTICAL = 60, HORIZONTAL = 61} orientation;
+typedef enum {MOVE = 70, WALL = 71} action;
+
+//macros
+#define BASE_SIZE 9
+#define WALL_SIZE 2
+#define N_OPTIONS 5
+#define NAME_SIZE 10
+#define WALL_CAP 5
+#define BREAK_CAP 3
 
 //structs
 struct termios orig_termios;
@@ -31,7 +39,7 @@ typedef struct {
     char icon;
     int x[2];
     int y[2];
-    wall walls[7];
+    wall walls[WALL_CAP];
     int wc;
     int win_pos;
     int wall_breaks;
@@ -39,28 +47,23 @@ typedef struct {
 } player;
 
 
-//macros
-#define BASE_SIZE 9
-#define WALL_SIZE 2
-#define N_OPTIONS 6
-#define NAME_SIZE 10
-#define WALL_CAP 5
-
-
-//function pre-calls (just so we doesnt need to organize every function in order)
+//chamadas de função (pra não ter que resolver conflito de ordem de funções)
 void construct_board(int b_size, char **board);
 void print_board(int b_size, char **board);
 int select_gamemode(int b_size, char **board);
 void player_names(player p[], int n_players);
 void setup_players(int b_size, char **board, player p[], int n_players);
-void pvp_mode(int b_size, char **board, int n_players);
+void pvp_mode(int b_size, char **board, int n_players, int start_turn_count, player p[]);
 validation player_actions(int b_size, char **board, player p[], input p_input, int *turn_count, int n_players);
-validation wall_actions(int b_size, char **board, int *x, int *y, input in, orientation *state, char **overlay, player *p);
+validation wall_actions(int b_size, char **board, int *x, int *y, input in, orientation *state, char **overlay, player *p, int n_players);
 void place_wall(int b_size, char **board, int *x, int *y, instruction mode, orientation *state, bool temporary);
 void update_overlay(int b_size, char **board, char **overlay);
 input get_input();
+void save_game(int b_size, player p[], int n_players, int turn_count); 
+bool load_game(int *b_size, char ***board_new_ptr, player p_loaded[], int *n_players, int *turn_count);
 
 
+//funções de ativar e desativar o raw mode (não mostrar o que está sendo digitado e pegar input sem apertar enter)
 void disable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
 }
@@ -80,17 +83,18 @@ void enable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
 
+//limpar buffer
 void flush_input(){
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
-    char dump;
-    while (read(STDIN_FILENO, &dump, 1) > 0);
+    char c;
+    while (read(STDIN_FILENO, &c, 1) > 0);
 
     fcntl(STDIN_FILENO, F_SETFL, flags);
 }
 
-
+//criar tabuleiro com alocação dinamica
 char **create_board(int b_size) {
     char **board = malloc(b_size * sizeof(char*));
     if (!board) return NULL;
@@ -110,8 +114,9 @@ char **create_board(int b_size) {
     return board;
 }
 
+//liberar a memoria da heap
 void free_board(int b_size, char **board) {
-    if (board == NULL) return;
+    if (board == NULL) return; //checar se o ponteiro tá NULL (já foi free)
     
     for (int i = 0; i < b_size; i++) {
         free(board[i]);
@@ -119,50 +124,83 @@ void free_board(int b_size, char **board) {
     free(board);
 }
 
-
+//main, unindo as coisas
 int main(){
+    //ativando raw mode 
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disable_raw_mode);
 
     enable_raw_mode();
+    //criando tamanho base do mapa baseado em 
     int b_size = BASE_SIZE*2+1; 
     
-    char **board = create_board(b_size);
-    if (board == NULL) {
-        printf("Erro ao alocar memória para o tabuleiro.\n");
+    //contagem de turno e de players base (pra mandar pro load e save)
+    int n_players = 0;
+    int turn_count = 0;
+    player p[4]; //inicializando o array de players (máximo OBRIGATORIO de até 4 players)
+    
+    char **board = create_board(b_size); // cria o tabuleiro usando MALLOC e guarda em board
+    if (board == NULL) { //if para caso não tenha espaço na HEAP
+        printf("O espaço da sua Heap está cheio, não foi possível inicializar\n");
         return 1;
     }
 
-    construct_board(b_size, board); 
+    construct_board(b_size, board); //cria as paredes e a estrutura do mapa
     
-    option gamemode = select_gamemode(b_size, board);
+    option gamemode = select_gamemode(b_size, board); // chama 
+    
+    // A variável 'current_board' agora rastreia o tabuleiro ativo (inicial ou carregado)
+    char **current_board = board; 
+    
     switch(gamemode){
-        case LOAD: break;
-
+        case LOAD: 
+            //LOAD libera o tabuleiro antigo e inicializa o novo se tiver arquivo
+            if (load_game(&b_size, &current_board, p, &n_players, &turn_count)) {
+                free_board(BASE_SIZE*2+1, board); 
+                pvp_mode(b_size, current_board, n_players, turn_count, p);//chama o modo de gameplay com o novo tabuleira
+            } else {
+                //caso não tenha save
+                free_board(b_size, board);
+                return 0;
+            }
+            break;
+            
         case TWOP: 
-            pvp_mode(b_size, board, 2);
+            //lógica pra 2 jogadores
+            turn_count = 0;
+            n_players = 2;
+            pvp_mode(b_size, current_board, n_players, turn_count, p);
             break;
 
         case THREEP: 
-            pvp_mode(b_size, board, 3);
+            //lógica pra 3 jogadores
+            turn_count = 0;
+            n_players = 3;
+            pvp_mode(b_size, current_board, n_players, turn_count, p);
             break;
 
-        case FOURP:
-            pvp_mode(b_size, board, 4);
+        case FOURP: 
+            //lógica pra 4 jogadores
+            turn_count = 0;
+            n_players = 4;
+            pvp_mode(b_size, current_board, n_players, turn_count, p);
             break;
 
         case QUIT: 
-            print_board(b_size, board);
+            //sair do jogo no menu
+            print_board(b_size, current_board);
             printf("\nThanks for playing!\n\n"); 
-            free_board(b_size, board);
+            free_board(b_size, current_board);
             return 0; 
-            break;
-        case TWOVTWO:
-        case PVE:
-            break; 
     }
-    
-    free_board(b_size, board);
+    //lógica p liberar o tabuleiro no fim, usa current_board pq é o ponteiro final. Se o load deu bom, ele aponta para o tabuleiro mais novo.
+    if (current_board != NULL && current_board != board) {
+        //se o jogo foi carregado, o 'board' original já foi liberado, e liberamos o 'current_board'.
+        free_board(b_size, current_board);
+    } else if (current_board != NULL) {
+        // Se for jogo novo ou load falhou, liberamos o 'board' original (que é current_board).
+        free_board(b_size, current_board);
+    }
     return 0;
 }
 
@@ -246,17 +284,106 @@ void print_board(int n, char **b){
     }
 }
 
+void save_game(int b_size, player p[], int n_players, int turn_count) {
+    FILE *file = fopen("quoridor_save.bin", "wb");
+    if (file == NULL) {
+        printf("\n\033[31mErro ao abrir arquivo para salvar.\033[0m\n");
+        return;
+    }
+
+    // 1. Salva metadados
+    fwrite(&b_size, sizeof(int), 1, file);
+    fwrite(&n_players, sizeof(int), 1, file);
+    fwrite(&turn_count, sizeof(int), 1, file);
+
+    // 2. Salva o array de jogadores
+    for (int i = 0; i < n_players; i++) {
+        // Salva a estrutura player. Note que 'walls' e 'name' são arrays fixos.
+        if (fwrite(&p[i], sizeof(player), 1, file) != 1) {
+             printf("\n\033[31mErro ao salvar dados do jogador %d.\033[0m\n", i + 1);
+             fclose(file);
+             return;
+        }
+    }    
+    fclose(file);
+    printf("\n\033[32mJogo salvo com sucesso em 'quoridor_save.bin'.\033[0m\n");
+}
+
+bool load_game(int *b_size, char ***board_new_ptr, player p_loaded[], int *n_players, int *turn_count) {
+    FILE *file = fopen("quoridor_save.bin", "rb");
+    if (file == NULL) {
+        printf("\n\033[31mErro: Arquivo 'quoridor_save.bin' não encontrado.\033[0m\n");
+        return false;
+    }
+
+    // 1. Lê metadados
+    if (fread(b_size, sizeof(int), 1, file) != 1 ||
+        fread(n_players, sizeof(int), 1, file) != 1 ||
+        fread(turn_count, sizeof(int), 1, file) != 1) 
+    {
+        printf("\n\033[31mErro ao ler cabeçalho do arquivo de salvamento.\033[0m\n");
+        fclose(file);
+        return false;
+    }
+
+    // 2. Verifica se o número de jogadores é válido
+    if (*n_players > 4 || *n_players < 2) {
+        printf("\n\033[31mErro: Número de jogadores (%d) inválido no arquivo de salvamento.\033[0m\n", *n_players);
+        fclose(file);
+        return false;
+    }
+
+    // 3. Lê o array de jogadores (diretamente para o array estático p_loaded[])
+    if (fread(p_loaded, sizeof(player), *n_players, file) != *n_players) {
+        printf("\n\033[31mErro ao ler dados dos jogadores.\033[0m\n");
+        fclose(file);
+        return false;
+    }
+
+    fclose(file);
+    
+    // 4. Recria e reconstrói o tabuleiro (aloca char **board)
+    char **board_loaded = create_board(*b_size);
+    if (board_loaded == NULL) {
+        printf("\n\033[31mErro ao criar tabuleiro após carregamento.\033[0m\n");
+        return false;
+    }
+    construct_board(*b_size, board_loaded);
+
+    // Posiciona jogadores
+    for (int i = 0; i < *n_players; i++) {
+        board_loaded[p_loaded[i].x[0]][p_loaded[i].y[0]] = p_loaded[i].icon;
+    }
+
+    // Posiciona paredes
+    for (int i = 0; i < *n_players; i++) {
+        for (int j = 0; j < p_loaded[i].wc; j++) {
+            int wx = p_loaded[i].walls[j].wall_x;
+            int wy = p_loaded[i].walls[j].wall_y;
+            orientation state = p_loaded[i].walls[j].state;
+            
+            place_wall(*b_size, board_loaded, &wx, &wy, INSERT, &state, false);
+        }
+    }
+
+    // Passa o ponteiro para o novo tabuleiro alocado para a main
+    *board_new_ptr = board_loaded;
+
+    printf("\n\033[32mJogo carregado com sucesso!\033[0m\n");
+    return true;
+}
+
 
 
 int select_gamemode(int b_size, char **board){ 
     int aux = -1, i = 0;
-    char arr[] = {'<', ' ', ' ', ' ', ' ', ' '};
+    char arr[] = {'<', ' ', ' ', ' ', ' '};
 
     while(aux != ENTER){
 
         print_board(b_size, board);
         printf("\n\n\033[34mWelcome to Quoridor made by Enzo and Joao Cleber\nPlease select an option\033[0m\n\n");
-        printf("\033[34mLOAD SAVE\033[0m %c         \033[34m2P\033[0m %c         \033[34m3P\033[0m %c         \033[34m4P\033[0m %c         \033[34m2v2\033[0m %c         \033[34mLEAVE GAME\033[0m %c\n", arr[0], arr[1], arr[2], arr[3], arr[4], arr[5]);
+        printf("\033[34mLOAD SAVE\033[0m %c         \033[34m2P\033[0m %c         \033[34m3P\033[0m %c         \033[34m4P\033[0m %c         \033[34mLEAVE GAME\033[0m %c\n", arr[0], arr[1], arr[2], arr[3], arr[4]);
         
         aux = get_input();
         while(aux != LEFT && aux != RIGHT && aux != ENTER){
@@ -384,43 +511,61 @@ winner check_win(player p[], int current_player_index) {
     return NONE;
 }
 
-void pvp_mode(int b_size, char **board, int n_players){
-    player p[n_players];
+void pvp_mode(int b_size, char **board, int n_players, int start_turn_count, player p[]){
+    
+    // 🛑 CORREÇÃO: Removido o 'player p[n_players];'. 
+    // Usamos o array 'p' que já foi passado no argumento.
 
-    player_names(p, n_players);
-    setup_players(b_size, board, p, n_players);
+    // 1. Configuração de Jogo Novo (só se for o primeiro turno)
+    if (start_turn_count == 0) {
+        player_names(p, n_players);
+        setup_players(b_size, board, p, n_players);
+    } 
+    // Se start_turn_count > 0, os dados vieram do LOAD e estão em 'p'.
+
     print_board(b_size, board);
 
     winner game_winner = NONE;
-    int turn_count = 0;
+    int turn_count = start_turn_count; // Inicia com o turno salvo (ou 0)
     validation check = INVALID;
 
-    while(game_winner == NONE){
+    while(game_winner == NONE || check != CANCEL){
+        // Aumenta o turno
+        check = INVALID;
         turn_count+=1;
-        int current_player_index = turn_count % n_players;
+        
+        // Ajuste do índice do jogador atual
+        int current_player_index = (turn_count) % n_players; 
+        
         flush_input();
 
         while(check == INVALID){
             print_board(b_size, board);
-            printf("\n\033[34mTURN %d\nIt's your turn %s\nMake your move!\n%d/%d Walls left\n\033[0m", turn_count, p[current_player_index].name, p[current_player_index].wc, WALL_CAP);
+            printf("\n\033[34mTURNO %d\nÉ sua vez %s\nFaça sua jogada!\n%d/%d Paredes restando\n%d/%d Quebras de parede\n\033[0m", 
+                   turn_count, p[current_player_index].name, p[current_player_index].wc, WALL_CAP,
+                    p[current_player_index].wall_breaks, BREAK_CAP);
+            printf("\n\n\033[34mSETAS = ANDAR\nESPAÇO = COLOCAR PAREDE\nBARRA = QUEBRAR PAREDE\nENTER = SALVAR E SAIR\n\033[0m");
             input a = get_input();
+            
             check = player_actions(b_size, board, p, a, &turn_count, n_players);
+            if (check == AGAIN) turn_count -=1;
             flush_input();
-            print_board(b_size, board);
+            
+            //verifica se a ação foi salvar e sair do jogo
+            if (check == CANCEL) {
+                game_winner = NONE; 
+                return; //sai da funcao pvp_mode
+            }
         }
         
         if (check == VALID) {
             game_winner = check_win(p, current_player_index);
         }
-
-        check = INVALID;
-        sleep(1);
-        
     }
     
-    printf("\n\033[1;32m*** Fim do Jogo! ***\033[0m\n");
+    printf("\n\033[1;32m*** END OF GAME ***\033[0m\n");
     if (game_winner != NONE) {
-        printf("\033[1;32mO vencedor é: %s!\033[0m\n", p[game_winner].name);
+        printf("\033[1;32mThe winner is: %s!\033[0m\n", p[game_winner].name);
     }
 }
 
@@ -428,6 +573,8 @@ void realloc_history(player *p){
     p->x[1] = p->x[0];
     p->y[1] = p->y[0];
 }
+
+// bool locked_in
 
 validation player_actions(int b_size, char **board, player p[], input p_input, int *turn_count, int n_players){
     
@@ -571,7 +718,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
                     b_size, board,
                     &p[i].walls[p[i].wc].wall_x,
                     &p[i].walls[p[i].wc].wall_y,
-                    in, &direction, overlay, &p[i]
+                    in, &direction, overlay, &p[i], n_players
                 );
 
                 print_board(b_size, overlay);
@@ -588,13 +735,118 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
             }
             break;
         }
-
             
+        case SLASH: {
+            if(p[i].wall_breaks <= 0) {
+                return INVALID;
+            }
+
+            wall all_placed_walls[WALL_CAP * n_players];
+            int wall_count = 0;
+
+            for (int k = 0; k < n_players; k++) {
+                for (int l = 0; l < p[k].wc; l++) {
+                    all_placed_walls[wall_count++] = p[k].walls[l];
+                }
+            }
+
+            if (wall_count == 0) {
+                printf("\n\033[31mNão há paredes no mapa!\n\n\033[0m");
+                get_input();
+                return INVALID;
+            }
+
+            input selection = SPACE;
+            int current_selection = 0; 
+            
+            char **overlay = create_board(b_size);
+            if (overlay == NULL) return INVALID;
+            
+            update_overlay(b_size, board, overlay);
+
+            while(selection != ENTER && selection != CANCEL){ 
+                update_overlay(b_size, board, overlay);
+                
+                wall *selected_wall = &all_placed_walls[current_selection];
+                
+                place_wall(b_size, overlay, 
+                           &selected_wall->wall_x,
+                           &selected_wall->wall_y, 
+                           INSERT,
+                           (orientation *)&selected_wall->state, true); 
+
+                print_board(b_size, overlay);
+                printf("\n\033[34mBreaking Wall: Use right arrow to cycle (%d/%d walls)\n\n\033[0m", current_selection + 1, wall_count);
+
+
+                selection = get_input();
+
+                switch(selection){
+                    case UP:
+                    case LEFT:
+                        current_selection = (current_selection - 1 + wall_count) % wall_count;
+                        break;
+                    case DOWN:
+                    case RIGHT:
+                        current_selection = (current_selection + 1) % wall_count;
+                        break;
+                    case BACK:
+                        selection = CANCEL;
+                        break;
+                    case ENTER:
+                        break;
+                }
+            }
+            
+            free_board(b_size, overlay);
+
+            if (selection == ENTER) {
+                wall *to_break = &all_placed_walls[current_selection];
+                
+                place_wall(b_size, board, 
+                           &to_break->wall_x, 
+                           &to_break->wall_y, 
+                           DELETE, 
+                           (orientation *)&to_break->state, 
+                           false); 
+
+                bool found = false;
+                for (int k = 0; k < n_players; k++) {
+                    for (int l = 0; l < p[k].wc; l++) {
+                        
+                        if (p[k].walls[l].wall_x == to_break->wall_x && p[k].walls[l].wall_y == to_break->wall_y) 
+                        {
+                            
+                            for (int m = l; m < p[k].wc - 1; m++) {
+                                p[k].walls[m] = p[k].walls[m + 1];
+                            }
+
+                            p[k].wc--;
+                            found = true;
+                            break; 
+                        }
+                    }
+                    if (found) break; // Sai do loop 'k'
+                }
+                
+                // 3. Decrementa o contador de quebras do jogador atual
+                p[i].wall_breaks--;
+                p[i].last_action = WALL; 
+                *turn_count -= 1;
+                validation player_actions(int b_size, char **board, player p[], input p_input, int *turn_count, int n_players);
+                return REPEAT;
+            } 
+            
+            return INVALID;
+        }
 
         case ENTER:
-            break;
-        case SLASH:
-            break;
+            save_game(b_size, p, n_players, *turn_count);
+            
+            return CANCEL;
+
+        default:
+            return INVALID;
     }
     return VALID;
 }
@@ -631,7 +883,7 @@ void update_overlay(int b_size, char **board, char **overlay){
 
 
 
-validation wall_actions(int b_size, char **board, int *x, int *y, input in, orientation *state, char **overlay, player *p){
+validation wall_actions(int b_size, char **board, int *x, int *y, input in, orientation *state, char **overlay, player *p, int n_players){
     orientation old_state = *state;
     int old_x = *x;
     int old_y = *y;
@@ -715,8 +967,9 @@ validation wall_actions(int b_size, char **board, int *x, int *y, input in, orie
 
         case BACK:
             return CANCEL;
+
         case SLASH:
-            break;
+            return INVALID;
     }
     return INVALID;
 }
