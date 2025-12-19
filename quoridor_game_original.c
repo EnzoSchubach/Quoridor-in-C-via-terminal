@@ -9,13 +9,13 @@
 
 //enums
 typedef enum {LOAD = 0, TWOP = 1, THREEP = 2, FOURP = 3, QUIT = 4} option;
-typedef enum {UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3, ENTER = 4, BACK = 5, SPACE = 6, SLASH = 7} input;
-typedef enum {P1 = 0, P2 = 1, NONE = 2} winner;
-typedef enum {INVALID = 0, VALID = 1, CANCEL = 2, REPEAT = 3, AGAIN = 4} validation;
-typedef enum {TOP = 0, BOT = 1, WEST = 2, EAST = 3} spawn; //MANO NÃO É POSSIVEL, EU TER BOTADO 40, 41, 42, 43 QUEBROU A WIN
-typedef enum {INSERT = 0, DELETE = 1} instruction;
-typedef enum {VERTICAL = 0, HORIZONTAL = 1} orientation;
-typedef enum {MOVE = 0, WALL = 1} action;
+typedef enum {UP = 10, DOWN = 11, LEFT = 12, RIGHT = 13, ENTER = 14, BACK = 15, SPACE = 16, SLASH = 17} input;
+typedef enum {P1 = 20, P2 = 21, NONE = 22} winner;
+typedef enum {INVALID = 30, VALID = 31, CANCEL = 32, REPEAT = 33, AGAIN = 34} validation;
+typedef enum {TOP = 40, BOT = 41, WEST = 42, EAST = 43} spawn;
+typedef enum {INSERT = 50, DELETE = 51} instruction;
+typedef enum {VERTICAL = 60, HORIZONTAL = 61} orientation;
+typedef enum {MOVE = 70, WALL = 71} action;
 
 //macros
 #define BASE_SIZE 9
@@ -61,7 +61,6 @@ void update_overlay(int b_size, char **board, char **overlay);
 input get_input();
 void save_game(int b_size, player p[], int n_players, int turn_count); 
 bool load_game(int *b_size, char ***board_new_ptr, player p_loaded[], int *n_players, int *turn_count);
-void locked_in(int b_size, char** board, player *p); //FALTOU ISSO
 
 
 //funções de ativar e desativar o raw mode (não mostrar o que está sendo digitado e pegar input sem apertar enter)
@@ -434,26 +433,26 @@ void player_names(player p[], int n_players){
 
 
 void player_spawn(int b_size, spawn spw, int *x, int *y) {
-    int middle = b_size / 2; //se for par vai dar b.o meu deus
+    int middle = b_size / 2;
 
     switch (spw) {
         case TOP:
             *x = 1;
-            *y = middle; //top spawna em i = 1 e j = 9. CERTO
+            *y = middle;
             break;
 
         case BOT:
-            *x = b_size - 2; //bot spawna em i = 17 e j = 9. CERTO
+            *x = b_size - 2;
             *y = middle;
             break;
 
         case WEST:
             *x = middle;
-            *y = 1; //i = 9, j = 1. CERTO
+            *y = 1;
             break;
 
         case EAST:
-            *x = middle; //i = 9, j = 17. CERTO
+            *x = middle;
             *y = b_size - 2;
             break;
     }
@@ -461,16 +460,16 @@ void player_spawn(int b_size, spawn spw, int *x, int *y) {
 
 void setup_players(int b_size, char **board, player p[], int n_players) {
 
-    spawn sides[4] = {TOP, BOT, EAST, WEST}; //0 1 2 3
+    spawn sides[4] = {TOP, BOT, EAST, WEST};
 
     for (int i = 0; i < n_players; i++) {
         p[i].icon = p[i].name[0] ? p[i].name[0] : '?';
 
-        player_spawn(b_size, sides[i], &p[i].x[0], &p[i].y[0]); 
+        player_spawn(b_size, sides[i], &p[i].x[0], &p[i].y[0]);
 
         board[p[i].x[0]][p[i].y[0]] = p[i].icon;
 
-        p[i].x[1] = -1; 
+        p[i].x[1] = -1;
         p[i].y[1] = -1;
 
         p[i].wc = 0;
@@ -478,7 +477,7 @@ void setup_players(int b_size, char **board, player p[], int n_players) {
 
         switch (sides[i]) {
             case TOP:
-                p[i].win_pos = b_size - 2; //P0. i1, j9 ganha em 17
+                p[i].win_pos = b_size - 2;
                 break;
             case BOT:
                 p[i].win_pos = 1;
@@ -525,7 +524,7 @@ void pvp_mode(int b_size, char **board, int n_players, int start_turn_count, pla
     int turn_count = start_turn_count; // inicia o jogo com o turno salvo no arquivo (ou 0)
     validation check = INVALID;
 
-    while(game_winner == NONE && check != CANCEL){ //eu botei OR em vez de AND, meu deus
+    while(game_winner == NONE || check != CANCEL){
         //aumenta o turno
         check = INVALID;
         turn_count+=1;
@@ -559,7 +558,6 @@ void pvp_mode(int b_size, char **board, int n_players, int start_turn_count, pla
         }
     }
     
-    print_board(b_size, board);
     printf("\n\033[1;32m*** FIM DE JOGO ***\033[0m\n");
     if (game_winner != NONE) {
         printf("\033[1;32mPARABÉNS!! %s, VOCÊ VENCEU!\033[0m\n", p[game_winner].name);
@@ -601,7 +599,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
 
             p[i].last_action = MOVE;
 
-            return VALID; //um dos erros do winner............
+            break;
 
         case DOWN:
             if(board[(p[i].x[0])+1][(p[i].y[0])] == '='){
@@ -617,7 +615,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
 
             p[i].last_action = MOVE;
 
-            return VALID;
+            break;
 
         case LEFT:
             if(board[(p[i].x[0])][(p[i].y[0])-1] == 'I'){
@@ -633,7 +631,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
 
             p[i].last_action = MOVE;
 
-            return VALID;
+            break;
 
         case RIGHT:
             if(board[(p[i].x[0])][(p[i].y[0])+1] == 'I'){
@@ -649,7 +647,7 @@ validation player_actions(int b_size, char **board, player p[], input p_input, i
 
             p[i].last_action = MOVE;
 
-            return VALID;
+            break;
 
         case BACK:
             int aux = (*turn_count - 1 + n_players) % n_players;
